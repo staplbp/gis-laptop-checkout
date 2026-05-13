@@ -612,8 +612,37 @@ function dailyReminderCheck() {
 function fmt(dateStr) {
   if (!dateStr) return '';
   try {
-    const parts = dateStr.split('-');
-    const d = new Date(parts[0], parts[1]-1, parts[2]);
+    const str = String(dateStr).trim();
+    let d;
+    // Already a Date object
+    if (str instanceof Date) {
+      d = str;
+    }
+    // yyyy-mm-dd
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      const parts = str.split('-');
+      d = new Date(Number(parts[0]), Number(parts[1])-1, Number(parts[2]));
+    }
+    // Apps Script full date string: Tue May 12 2026 00:00:00 GMT-0400 (...)
+    else if (/^[A-Za-z]{3} [A-Za-z]{3}/.test(str)) {
+      const months = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+      const parts = str.split(' ');
+      d = new Date(Number(parts[3]), months[parts[1]], Number(parts[2]));
+    }
+    // ISO with T
+    else if (str.includes('T')) {
+      const datePart = str.split('T')[0].split('-');
+      d = new Date(Number(datePart[0]), Number(datePart[1])-1, Number(datePart[2]));
+    }
+    // m/d/yyyy
+    else if (str.includes('/')) {
+      const parts = str.split('/');
+      d = new Date(Number(parts[2]), Number(parts[0])-1, Number(parts[1]));
+    }
+    else {
+      d = new Date(str);
+    }
+    if (!d || isNaN(d.getTime())) return dateStr;
     return Utilities.formatDate(d, Session.getScriptTimeZone(), 'MMM d, yyyy');
   } catch(e) { return dateStr; }
 }
@@ -829,8 +858,8 @@ function parseDate(s) {
 }
 
 function toYMD(s) {
-  const d = parseDate(s);
-  if (!d) return '';
+  const d = (s instanceof Date) ? s : parseDate(s);
+  if (!d || isNaN(d.getTime())) return '';
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
   const day = String(d.getDate()).padStart(2,'0');
@@ -853,7 +882,7 @@ function addDays(dateStr, n) {
   const d = parseDate(dateStr);
   if (!d) return '';
   d.setDate(d.getDate()+n);
-  return toYMD(d.toISOString().split('T')[0]);
+  return toYMD(d);
 }
 
 function calendarDaysUntil(dateStr) {
@@ -1013,10 +1042,10 @@ async function submitRequest() {
   try {
     const all    = await getAllRequests();
     const cutoff = addDays(today(), -30);
-    const recent = all.filter(r => r.email.toLowerCase()===email.toLowerCase() && r.submittedOn>=cutoff && r.status!=='denied');
+    const recent = all.filter(r => r.email.toLowerCase()===email.toLowerCase() && toYMD(r.submittedOn)>=cutoff && r.status!=='denied');
     if (recent.length >= MAX_REQUESTS_30) {
       hideLoading();
-      showAlert('requestAlert','You have reached the 3-request limit in a 30-day window. Your next request is available after ' + fmtDate(addDays(recent[0].submittedOn,30)) + '.','error');
+      showAlert('requestAlert','You have reached the 3-request limit in a 30-day window. Your next request is available after ' + fmtDate(addDays(toYMD(recent[0].submittedOn),30)) + '.','error');
       return;
     }
     const req = {
