@@ -518,7 +518,18 @@ function getSheet() {
 
 function rowToObj(row) {
   const obj = {};
-  HEADERS.forEach((h, i) => { obj[h] = row[i] !== undefined ? String(row[i]) : ''; });
+  const dateFields = ['checkoutStart','checkoutEnd','submittedOn','approvedOn','returnedOn'];
+  HEADERS.forEach((h, i) => {
+    if (dateFields.includes(h) && row[i] instanceof Date) {
+      const d = row[i];
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      obj[h] = y + '-' + m + '-' + day;
+    } else {
+      obj[h] = row[i] !== undefined ? String(row[i]) : '';
+    }
+  });
   return obj;
 }
 
@@ -785,21 +796,34 @@ function today() { return new Date().toISOString().split('T')[0]; }
 function parseDate(s) {
   if (!s || s === '' || s === 'undefined' || s === 'null') return null;
   const str = String(s).trim();
+  // yyyy-mm-dd
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     const [y,m,d] = str.split('-');
     return new Date(Number(y), Number(m)-1, Number(d));
   }
-  if (str.includes('T')) {
-    const datePart = str.split('T')[0];
-    const [y,m,d] = datePart.split('-');
+  // ISO with T: 2026-05-12T00:00:00.000Z
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) {
+    const [y,m,d] = str.split('T')[0].split('-');
     return new Date(Number(y), Number(m)-1, Number(d));
   }
+  // Apps Script full date string: Tue May 12 2026 00:00:00 GMT-0400 (...)
+  // or: Mon Jan 01 2026 00:00:00 GMT+0000
+  if (/^[A-Za-z]{3} [A-Za-z]{3} \d{1,2} \d{4}/.test(str)) {
+    const parts = str.split(' ');
+    const monthMap = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const m = monthMap[parts[1]];
+    const d = Number(parts[2]);
+    const y = Number(parts[3]);
+    if (!isNaN(m) && !isNaN(d) && !isNaN(y)) return new Date(y, m, d);
+  }
+  // m/d/yyyy
   if (str.includes('/')) {
     const parts = str.split('/');
     if (parts.length === 3) {
       return new Date(Number(parts[2]), Number(parts[0])-1, Number(parts[1]));
     }
   }
+  // Last resort
   const fallback = new Date(str);
   return isNaN(fallback.getTime()) ? null : fallback;
 }
