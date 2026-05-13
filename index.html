@@ -738,7 +738,7 @@ function setCache(arr) { _cache = arr; }
 // ══════════════════════════════════════
 //  SHEETS API
 // ══════════════════════════════════════
-function getSheetUrl() { return STORE.get('gis_sheeturl', ''); }
+function getSheetUrl() { return localStorage.getItem('gis_sheeturl') || ''; }
 
 async function sheetFetch(params) {
   const url = getSheetUrl();
@@ -1329,11 +1329,12 @@ function exportCSV() {
 //  CONFIG
 // ══════════════════════════════════════
 function loadConfig() {
-  document.getElementById('cfg_sheeturl').value = getSheetUrl();
+  document.getElementById('cfg_sheeturl').value = localStorage.getItem('gis_sheeturl') || '';
 }
 
 function saveSheetUrl() {
-  STORE.set('gis_sheeturl', document.getElementById('cfg_sheeturl').value.trim());
+  const url = document.getElementById('cfg_sheeturl').value.trim();
+  localStorage.setItem('gis_sheeturl', url);
   document.getElementById('sheetStatus').innerHTML = '<div class="alert alert-success">Web App URL saved.</div>';
 }
 
