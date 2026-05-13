@@ -297,6 +297,7 @@ textarea { resize: vertical; min-height: 80px; }
         <input type="date" id="req_end" onchange="validateDates()">
         <div class="hint" id="bdayCount"></div>
       </div>
+      <div class="form-group"><label>Select Your Manager</label><select id="req_manager"><option value="">-- Select your manager --</option><option value="Benita Staples">Benita Staples</option><option value="Angela Johnson">Angela Johnson</option></select></div>
       <div class="form-group full"><label>Purpose / Reason for Checkout</label><textarea id="req_purpose" placeholder="Briefly describe why you need the laptop..."></textarea></div>
     </div>
     <div id="availabilityInfo" style="display:none" class="alert alert-info mb-2"></div>
@@ -484,7 +485,7 @@ const MGR_2      = 'Angela.Johnson@mecklenburgcountync.gov';
 const HEADERS = [
   'id','name','email','checkoutStart','checkoutEnd','businessDays',
   'purpose','status','submittedOn','laptop','approvedBy','approvedByEmail',
-  'approvedOn','returnedOn','note','reminderSent','overdueSent'
+  'approvedOn','returnedOn','note','reminderSent','overdueSent','requestedManager'
 ];
 
 function doGet(e)  { return handleRequest(e); }
@@ -751,8 +752,14 @@ async function sheetFetch(params) {
 
 async function getAllRequests() {
   const data = await sheetFetch({ action: 'getAll' });
-  setCache(Array.isArray(data) ? data : []);
+  const normalized = Array.isArray(data) ? data.map(normalizeRequest) : [];
+  setCache(normalized);
   return getCache();
+}
+
+
+
+
 }
 
 async function addRequestToSheet(req) {
@@ -764,25 +771,89 @@ async function updateRequestInSheet(fields) {
 }
 
 async function getRequestsByEmail(email) {
-  return await sheetFetch({ action: 'getByEmail', email });
+  const data = await sheetFetch({ action: 'getByEmail', email });
+  return Array.isArray(data) ? data.map(normalizeRequest) : [];
 }
+
+
+
 
 // ══════════════════════════════════════
 //  DATE HELPERS
 // ══════════════════════════════════════
 function today() { return new Date().toISOString().split('T')[0]; }
-function parseDate(s) { if (!s) return new Date(0); const [y,m,d] = String(s).split('-'); return new Date(y, m-1, d); }
-function fmtDate(s) { if (!s) return ''; return parseDate(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
-function fmtDateShort(s) { if (!s) return ''; return parseDate(s).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
-function addDays(dateStr, n) { const d = parseDate(dateStr); d.setDate(d.getDate()+n); return d.toISOString().split('T')[0]; }
-function calendarDaysUntil(dateStr) { return Math.round((parseDate(dateStr) - parseDate(today())) / 86400000); }
+
+function parseDate(s) {
+  if (!s || s === '' || s === 'undefined' || s === 'null') return null;
+  const str = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y,m,d] = str.split('-');
+    return new Date(Number(y), Number(m)-1, Number(d));
+  }
+  if (str.includes('T')) {
+    const datePart = str.split('T')[0];
+    const [y,m,d] = datePart.split('-');
+    return new Date(Number(y), Number(m)-1, Number(d));
+  }
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      return new Date(Number(parts[2]), Number(parts[0])-1, Number(parts[1]));
+    }
+  }
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function toYMD(s) {
+  const d = parseDate(s);
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return y + '-' + m + '-' + day;
+}
+
+function fmtDate(s) {
+  const d = parseDate(s);
+  if (!d) return '';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+
+function fmtDateShort(s) {
+  const d = parseDate(s);
+  if (!d) return '';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function addDays(dateStr, n) {
+  const d = parseDate(dateStr);
+  if (!d) return '';
+  d.setDate(d.getDate()+n);
+  return toYMD(d.toISOString().split('T')[0]);
+}
+
+function calendarDaysUntil(dateStr) {
+  const d = parseDate(dateStr);
+  if (!d) return 0;
+  return Math.round((d - parseDate(today())) / 86400000);
+}
+
 function newId() { return 'req_' + Date.now() + '_' + Math.random().toString(36).slice(2,6); }
 
 function countBusinessDays(startStr, endStr) {
   let count = 0, cur = parseDate(startStr);
   const end = parseDate(endStr);
+  if (!cur || !end) return 0;
   while (cur <= end) { const d = cur.getDay(); if (d!==0&&d!==6) count++; cur.setDate(cur.getDate()+1); }
   return count;
+}
+
+function normalizeRequest(r) {
+  ['checkoutStart','checkoutEnd','submittedOn','approvedOn','returnedOn'].forEach(f => {
+    if (r[f]) r[f] = toYMD(r[f]) || r[f];
+  });
+  return r;
 }
 
 // ══════════════════════════════════════
@@ -905,9 +976,10 @@ async function submitRequest() {
   const email   = document.getElementById('req_email').value.trim();
   const start   = document.getElementById('req_start').value;
   const end     = document.getElementById('req_end').value;
-  const purpose = document.getElementById('req_purpose').value.trim();
+  const purpose = document.getElementById("req_purpose").value.trim();
+  const manager = document.getElementById("req_manager").value;
 
-  if (!name||!email||!start||!end||!purpose) { showAlert('requestAlert','Please fill in all fields.','error'); return; }
+  if (!name||!email||!start||!end||!purpose||!manager) { showAlert('requestAlert','Please fill in all fields including your manager selection.','error'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('requestAlert','Please enter a valid email address.','error'); return; }
   if (end < start) { showAlert('requestAlert','Return date must be on or after the start date.','error'); return; }
 
@@ -930,12 +1002,13 @@ async function submitRequest() {
       status: 'pending', submittedOn: today(),
       laptop:'', approvedBy:'', approvedByEmail:'', approvedOn:'', returnedOn:'',
       note:'', reminderSent:'false', overdueSent:'false',
+      requestedManager: manager,
     };
     document.getElementById('loadingText').textContent = 'Submitting request...';
     await addRequestToSheet(req);
     setCache([...all, req]);
     showAlert('requestAlert','Your request has been submitted. You will receive an email once a manager reviews it.','success');
-    ['req_name','req_email','req_start','req_end','req_purpose'].forEach(id => document.getElementById(id).value = '');
+    ['req_name','req_email','req_start','req_end','req_purpose','req_manager'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('bdayCount').textContent = '';
     document.getElementById('availabilityInfo').style.display = 'none';
   } catch(err) { showAlert('requestAlert','Error submitting: ' + err.message,'error'); }
@@ -1080,6 +1153,13 @@ function openApproval(id) {
       </select>
     </div>`;
   document.getElementById('approvalNote').value = '';
+  // Pre-select the manager the staff member requested
+  const sel = document.getElementById('approverSelect');
+  if (r.requestedManager) {
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === r.requestedManager) { sel.selectedIndex = i; break; }
+    }
+  }
   document.getElementById('approvalModal').classList.add('open');
 }
 
